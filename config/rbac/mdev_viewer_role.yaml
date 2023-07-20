@@ -1,0 +1,20 @@
+# permissions for end users to view mdevs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mdev-viewer-role
+rules:
+- apiGroups:
+  - mdev.my.domain
+  resources:
+  - mdevs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - mdev.my.domain
+  resources:
+  - mdevs/status
+  verbs:
+  - get

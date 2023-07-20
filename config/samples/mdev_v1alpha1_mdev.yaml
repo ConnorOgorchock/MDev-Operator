@@ -1,0 +1,7 @@
+apiVersion: mdev.my.domain/v1alpha1
+kind: MDev
+metadata:
+  name: mdev-sample
+spec:
+  # TODO(user): Add fields here
+  mdevtype: nvidia-222
