@@ -4,4 +4,6 @@ metadata:
   name: mdev-sample
 spec:
   # TODO(user): Add fields here
-  mdevtype: nvidia-222
+  mediatedDevicesTypes: 
+  - nvidia-222
+  - nvidia-223

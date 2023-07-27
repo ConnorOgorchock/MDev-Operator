@@ -92,21 +92,36 @@ func (r *MDevReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 					return ctrl.Result{}, err
 				}
 	*/
-	desiredmdev := mdev.Spec.MDevType
-	path := filepath.Join("/sys/class/mdev_bus/0000:65:00.0/mdev_supported_types", desiredmdev, "create")
-	f, err := os.OpenFile(path, os.O_WRONLY, 0200)
-	if err != nil {
-		log.Error(err, "failed to create mdev type, can't open path\n")
+
+	//get new device type from CR
+	desiredmdevs := mdev.Spec.MDevTypes
+
+	for i := 0; i < len(desiredmdevs); i++ {
+
+		devicepath := filepath.Join("/sys/class/mdev_bus/0000:65:00.0/mdev_supported_types", desiredmdevs[i], "")
+
+		//initialize struct
+		newMDEV := mdevv1alpha1.MDEV{
+			UUID:     uuid.New().String(),
+			TypeName: desiredmdevs[i],
+			FilePath: devicepath,
+		}
+
+		//try to create device
+		path := filepath.Join(newMDEV.FilePath, "create")
+		f, err := os.OpenFile(path, os.O_WRONLY, 0200)
+		if err != nil {
+			log.Error(err, "failed to create mdev type, can't open path\n")
+		}
+
+		if _, err = f.WriteString(newMDEV.UUID); err != nil {
+			log.Error(err, "failed to create mdev type, can't write to\n")
+		}
+		f.Close()
+
+		//add device to list of existing mdevs
+		mdev.Status.MDevs = append(mdev.Status.MDevs, &newMDEV)
 	}
-
-	id := uuid.New().String()
-
-	if _, err = f.WriteString(id); err != nil {
-		log.Error(err, "failed to create mdev type, can't write to\n")
-	}
-
-	// TODO(user): your logic here
-
 	return ctrl.Result{}, nil
 }
 

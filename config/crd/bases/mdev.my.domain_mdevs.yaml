@@ -39,23 +39,32 @@ spec:
                 description: Foo is an example field of MDev. Edit mdev_types.go to
                   remove/update
                 type: string
-              mdevtype:
-                type: string
-            required:
-            - mdevtype
-            type: object
-          status:
-            description: MDevStatus defines the observed state of MDev
-            properties:
-              nodes:
-                description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
-                  of cluster Important: Run "make" to regenerate code after modifying
-                  this file'
+              mediatedDevicesTypes:
                 items:
                   type: string
                 type: array
             required:
-            - nodes
+            - mediatedDevicesTypes
+            type: object
+          status:
+            description: MDevStatus defines the observed state of MDev
+            properties:
+              mdevs:
+                description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                  of cluster Important: Run "make" to regenerate code after modifying
+                  this file'
+                items:
+                  properties:
+                    filepath:
+                      type: string
+                    typename:
+                      type: string
+                    uuid:
+                      type: string
+                  type: object
+                type: array
+            required:
+            - mdevs
             type: object
         type: object
     served: true
