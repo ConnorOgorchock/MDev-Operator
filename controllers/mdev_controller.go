@@ -18,19 +18,19 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	mdevv1alpha1 "github.com/api/v1alpha1"
 	"github.com/google/uuid"
-	"os"
-	"path/filepath"
-
-	//	"github.com/go-logr/logr"
+	"io/ioutil"
 	errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"os"
+	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	mdevv1alpha1 "github.com/api/v1alpha1"
+	"time"
 )
 
 // MDevReconciler reconciles a MDev object
@@ -67,6 +67,9 @@ func (r *MDevReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
 			log.Info("Mdev resource not found. Ignoring since object must be deleted")
+
+			deleteAllMDEVS()
+
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -94,34 +97,42 @@ func (r *MDevReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	*/
 
 	//get new device type from CR
+	//this is a list to support multiple types in the CR (later)
 	desiredmdevs := mdev.Spec.MDevTypes
 
-	for i := 0; i < len(desiredmdevs); i++ {
+	// list of all gpus to iterate over
+	gpus, _ := ioutil.ReadDir("/sys/class/mdev_bus/")
+	for _, gpu := range gpus {
 
-		devicepath := filepath.Join("/sys/class/mdev_bus/0000:65:00.0/mdev_supported_types", desiredmdevs[i], "")
-
-		//initialize struct
-		newMDEV := mdevv1alpha1.MDEV{
-			UUID:     uuid.New().String(),
-			TypeName: desiredmdevs[i],
-			FilePath: devicepath,
+		for j, desiredmdevtype := range desiredmdevs {
+			devicepath := filepath.Join("/sys/class/mdev_bus/", gpu.Name(), "/mdev_supported_types", desiredmdevtype, "")
+			if _, err := exists(devicepath); err == nil {
+				//create
+				createMDEVS(desiredmdevtype, devicepath)
+				//change slice for next loop
+				desiredmdevs = append(desiredmdevs[j+1:], desiredmdevs[:j+1]...)
+				//break from inner loop
+				break
+			}
 		}
-
-		//try to create device
-		path := filepath.Join(newMDEV.FilePath, "create")
-		f, err := os.OpenFile(path, os.O_WRONLY, 0200)
-		if err != nil {
-			log.Error(err, "failed to create mdev type, can't open path\n")
-		}
-
-		if _, err = f.WriteString(newMDEV.UUID); err != nil {
-			log.Error(err, "failed to create mdev type, can't write to\n")
-		}
-		f.Close()
-
-		//add device to list of existing mdevs
-		mdev.Status.MDevs = append(mdev.Status.MDevs, &newMDEV)
 	}
+
+	//	devicepath := filepath.Join("/sys/class/mdev_bus/0000:65:00.0/mdev_supported_types", desiredmdevs[0], "")
+
+	//	instpath := filepath.Join(devicepath, "available_instances")
+	//	instances, err := os.ReadFile(instpath)
+	//	if err != nil {
+	//		log.Error(err, "failed to get available instances\n")
+	//	}
+
+	//	for i, _ := strconv.Atoi(string(instances)); i > 0; i-- {
+
+	//		log.Info("LOOP: %d", i)
+
+	//add device to list of existing mdevs
+	//	mdev.Status.MDevs = append(mdev.Status.MDevs, &newMDEV)
+
+	//	}
 	return ctrl.Result{}, nil
 }
 
@@ -130,4 +141,67 @@ func (r *MDevReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&mdevv1alpha1.MDev{}).
 		Complete(r)
+}
+
+func exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func createMDEVS(mdevtype, mdevpath string) {
+
+	file, _ := os.OpenFile(filepath.Join(mdevpath, "available_instances"), os.O_RDONLY, 0200)
+	var instances int
+	fmt.Fscanf(file, "%d", &instances)
+	file.Close()
+
+	for i := 0; i < instances; i++ {
+
+		//initialize struct
+		newMDEV := mdevv1alpha1.MDEV{
+			UUID:     uuid.New().String(),
+			TypeName: mdevtype,
+			FilePath: mdevpath,
+		}
+
+		//try to create device
+		path := filepath.Join(newMDEV.FilePath, "create")
+		f, err := os.OpenFile(path, os.O_WRONLY, 0200)
+		if err != nil {
+			//		log.Error(err, "failed to create mdev type, can't open path\n")
+		}
+
+		if _, err = f.WriteString(newMDEV.UUID); err != nil {
+			//		log.Error(err, "failed to create mdev type, can't write to path\n")
+		}
+		f.Close()
+		time.Sleep(1 * time.Second)
+	}
+}
+
+//brute force delete all mdevs
+func deleteAllMDEVS() {
+
+	gpus, _ := ioutil.ReadDir("/sys/class/mdev_bus/")
+	for _, gpu := range gpus {
+		supportedpath := filepath.Join("/sys/class/mdev_bus/", gpu.Name(), "/mdev_supported_types/")
+		supportedTypes, _ := ioutil.ReadDir(supportedpath)
+		for _, stype := range supportedTypes {
+			devicespath := filepath.Join(supportedpath, stype.Name(), "/devices/")
+			devices, _ := ioutil.ReadDir(devicespath)
+			for _, device := range devices {
+				removepath := filepath.Join(devicespath, device.Name(), "/remove")
+				f, _ := os.OpenFile(removepath, os.O_WRONLY, 0200)
+				f.WriteString("1")
+				time.Sleep(1 * time.Second)
+				f.Close()
+			}
+		}
+	}
 }
